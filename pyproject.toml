@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tester-tool"
+version = "1.0.0"
+description = "试验数据处理工具"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your@email.com"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "PyQt6>=6.5.0",
+]
+
+[project.scripts]
+tester = "tester.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
