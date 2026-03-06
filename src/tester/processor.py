@@ -9,6 +9,15 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
 
+def is_merged_cell(ws, row, col):
+    """检查单元格是否是合并单元格"""
+    coord = ws.cell(row, col).coordinate
+    for merged_range in ws.merged_cells.ranges:
+        if coord in merged_range:
+            return True
+    return False
+
+
 class DataProcessor:
     """试验数据处理器"""
     
@@ -163,55 +172,42 @@ class DataProcessor:
             
             red_fill = PatternFill(fill_type='solid', fgColor='FF0000', bgColor='FF0000')
             
-            # 检查并取消 F/G 列的合并单元格
-            merged_ranges_f = [m for m in ws.merged_cells.ranges if 'F' in str(m)]
-            merged_ranges_g = [m for m in ws.merged_cells.ranges if 'G' in str(m)]
+            # F列 - 非合并单元格才写入和标记
+            if not is_merged_cell(ws, row_idx, 6):
+                if temp_start is not None:
+                    ws.cell(row_idx, 6).value = round(temp_start, 1)
+                else:
+                    ws.cell(row_idx, 6).value = None
+                    ws.cell(row_idx, 6).fill = red_fill
             
-            if temp_start is not None:
-                ws.cell(row_idx, 6).value = round(temp_start, 1)  # F列
-            else:
-                # 先取消该位置的合并，再设置值和颜色
-                for mr in list(ws.merged_cells.ranges):
-                    if ws.cell(row_idx, 6).coordinate in mr:
-                        ws.unmerge_cells(str(mr))
-                ws.cell(row_idx, 6).value = None
-                ws.cell(row_idx, 6).fill = red_fill  # 红色标记
-            
-            if temp_end is not None:
-                ws.cell(row_idx, 7).value = round(temp_end, 1)  # G列
-            else:
-                for mr in list(ws.merged_cells.ranges):
-                    if ws.cell(row_idx, 7).coordinate in mr:
-                        ws.unmerge_cells(str(mr))
-                ws.cell(row_idx, 7).value = None
-                ws.cell(row_idx, 7).fill = red_fill  # 红色标记
+            # G列 - 非合并单元格才写入和标记
+            if not is_merged_cell(ws, row_idx, 7):
+                if temp_end is not None:
+                    ws.cell(row_idx, 7).value = round(temp_end, 1)
+                else:
+                    ws.cell(row_idx, 7).value = None
+                    ws.cell(row_idx, 7).fill = red_fill
         
         # 计算环境温度平均值
         f_vals = []
         g_vals = []
-        red_fill = PatternFill(fill_type='solid', fgColor='FF0000', bgColor='FF0000')
         
         for col_info in ambient_cols:
             row = col_info['row']
             f_val = ws.cell(row, 6).value
             g_val = ws.cell(row, 7).value
             
+            # F列 - 非合并单元格才标记
             if f_val is not None:
                 f_vals.append(f_val)
-            else:
-                # 先取消合并再设置颜色
-                for mr in list(ws.merged_cells.ranges):
-                    if ws.cell(row, 6).coordinate in mr:
-                        ws.unmerge_cells(str(mr))
-                ws.cell(row, 6).fill = red_fill  # 红色标记
+            elif not is_merged_cell(ws, row, 6):
+                ws.cell(row, 6).fill = red_fill
             
+            # G列 - 非合并单元格才标记
             if g_val is not None:
                 g_vals.append(g_val)
-            else:
-                for mr in list(ws.merged_cells.ranges):
-                    if ws.cell(row, 7).coordinate in mr:
-                        ws.unmerge_cells(str(mr))
-                ws.cell(row, 7).fill = red_fill  # 红色标记
+            elif not is_merged_cell(ws, row, 7):
+                ws.cell(row, 7).fill = red_fill
         
         f_avg = round(sum(f_vals) / len(f_vals), 1) if f_vals else 0
         g_avg = round(sum(g_vals) / len(g_vals), 1) if g_vals else 0
