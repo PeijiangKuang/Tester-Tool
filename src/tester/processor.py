@@ -25,14 +25,15 @@ class DataProcessor:
         self.csv_data = {}  # {file_num: {channel: [(time, value), ...]}}
         self.warnings = []  # 存储警告信息
     
-    def process(self, csv_files: list, excel_file: str, ambient_cols: list,
+    def process(self, csv_dir: str = None, csv_files: list = None, excel_file: str = None, ambient_cols: list = None,
                 file_index_col: int = 4, channel_index_col: int = 5,
                 time_interval: int = 60, temp_threshold: float = 2.0) -> dict:
         """
         处理数据
         
         Args:
-            csv_files: CSV 文件路径列表
+            csv_dir: CSV 根目录（包含1/2/3子目录）
+            csv_files: CSV 文件列表（兼容旧版）
             excel_file: Excel 模板文件路径
             ambient_cols: 用户选择的环境温度行信息 [{'row': int, 'd_value': str, 'e_value': str}, ...]
             file_index_col: 文件索引列号（默认4=D列）
@@ -45,18 +46,38 @@ class DataProcessor:
         """
         self.warnings = []  # 重置警告
         
+        # 优先使用 csv_dir，兼容 csv_files
+        if csv_dir:
+            csv_files = self.parse_csv_directory(csv_dir)
+        
+        if not csv_files:
+            raise ValueError("未找到 CSV 文件，请检查目录结构")
+        
         # 解析 CSV 文件
         csv_start, csv_end = None, None
         
-        for csv_path in csv_files:
-            file_num = int(Path(csv_path).stem)
-            data, start, end = self.parse_csv(csv_path)
-            self.csv_data[file_num] = data
-            
-            if csv_start is None or (start and start < csv_start):
-                csv_start = start
-            if csv_end is None or (end and end > csv_end):
-                csv_end = end
+        if csv_dir:
+            # 新版：从目录结构解析，文件索引由 Excel D 列决定
+            # 先建立子目录名 -> CSV 文件路径的映射
+            subdir_to_csv = {}
+            root_path = Path(csv_dir)
+            for subdir in root_path.iterdir():
+                if subdir.is_dir() and subdir.name.isdigit():
+                    csv_list = list(subdir.glob("*.csv"))
+                    if csv_list:
+                        subdir_to_csv[subdir.name] = str(csv_list[0])
+        else:
+            # 兼容旧版：从文件列表直接解析
+            subdir_to_csv = None
+            for csv_path in csv_files:
+                file_num = int(Path(csv_path).stem)
+                data, start, end = self.parse_csv(csv_path)
+                self.csv_data[file_num] = data
+                
+                if csv_start is None or (start and start < csv_start):
+                    csv_start = start
+                if csv_end is None or (end and end > csv_end):
+                    csv_end = end
         
         if not csv_start or not csv_end:
             raise ValueError("无法解析 CSV 文件的时间数据")
@@ -111,8 +132,23 @@ class DataProcessor:
             
             if d_val and e_val:
                 try:
+                    # 这里 d_val 现在是子目录名（如 "1", "2", "3"）
                     file_num = int(float(str(d_val)))
                     channel = int(float(str(e_val)))
+                    
+                    # 如果是 csv_dir 模式，解析对应的 CSV 文件
+                    if csv_dir and subdir_to_csv:
+                        subdir_name = str(file_num)
+                        if subdir_name in subdir_to_csv:
+                            csv_path = subdir_to_csv[subdir_name]
+                            # 解析 CSV 并存储
+                            if file_num not in self.csv_data:
+                                data, start, end = self.parse_csv(csv_path)
+                                self.csv_data[file_num] = data
+                                if csv_start is None or (start and start < csv_start):
+                                    csv_start = start
+                                if csv_end is None or (end and end > csv_end):
+                                    csv_end = end
                     
                     # 检查是否跳过（ref标记）
                     i_str = str(i_val).strip().lower() if i_val else ''
@@ -248,6 +284,55 @@ class DataProcessor:
             'output_path': str(output_path),
             'warnings': self.warnings
         }
+    
+    def parse_csv_directory(self, root_dir: str) -> list:
+        """
+        解析 CSV 目录结构
+        
+        目录结构：
+        root_dir/
+            1/
+                xxx.csv  (只能有1个)
+            2/
+                yyy.csv
+            3/
+                zzz.csv
+        
+        Returns:
+            list: ["/path/to/1/xxx.csv", "/path/to/2/yyy.csv", ...]
+        
+        Raises:
+            ValueError: 目录结构不满足要求
+        """
+        root_path = Path(root_dir)
+        
+        if not root_path.is_dir():
+            raise ValueError(f"目录不存在: {root_dir}")
+        
+        csv_files = []
+        subdirs = sorted([d for d in root_path.iterdir() if d.is_dir()], key=lambda x: x.name)
+        
+        for subdir in subdirs:
+            # 检查子目录名是否为数字
+            if not subdir.name.isdigit():
+                continue  # 跳过非数字命名的子目录
+            
+            # 查找该子目录下的 CSV 文件
+            csv_list = list(subdir.glob("*.csv"))
+            
+            if len(csv_list) == 0:
+                raise ValueError(f"子目录 {subdir.name} 中没有 CSV 文件")
+            elif len(csv_list) > 1:
+                raise ValueError(f"子目录 {subdir.name} 中有多个 CSV 文件，应只有1个")
+            
+            csv_files.append(str(csv_list[0]))
+        
+        if not csv_files:
+            raise ValueError("未找到任何 CSV 子目录（目录名应为数字，如1,2,3）")
+        
+        # 按子目录名排序返回
+        csv_files.sort(key=lambda x: int(Path(x).parent.name))
+        return csv_files
     
     def parse_csv(self, csv_path: str) -> tuple:
         """

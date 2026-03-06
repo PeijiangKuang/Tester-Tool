@@ -29,10 +29,11 @@ class ProcessThread(QThread):
     finished = pyqtSignal(str, str)  # message, output_path
     error = pyqtSignal(str)
     
-    def __init__(self, csv_files, excel_file, ambient_cols, 
-                 file_index_col, channel_index_col, time_interval, temp_threshold):
+    def __init__(self, csv_dir=None, csv_files=None, excel_file=None, ambient_cols=None, 
+                 file_index_col=None, channel_index_col=None, time_interval=None, temp_threshold=None):
         super().__init__()
-        self.csv_files = csv_files
+        self.csv_dir = csv_dir  # 新增：CSV 根目录
+        self.csv_files = csv_files  # 兼容旧版
         self.excel_file = excel_file
         self.ambient_cols = ambient_cols
         self.file_index_col = file_index_col
@@ -48,7 +49,8 @@ class ProcessThread(QThread):
             self.progress.emit(30)
             
             result = processor.process(
-                csv_files=self.csv_files,
+                csv_dir=self.csv_dir,  # 新增
+                csv_files=self.csv_files,  # 兼容
                 excel_file=self.excel_file,
                 ambient_cols=self.ambient_cols,
                 file_index_col=self.file_index_col,
@@ -79,7 +81,8 @@ class TesterApp(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.csv_files = []
+        self.csv_dir = ""  # CSV 根目录
+        self.csv_files = []  # 保留兼容性
         self.excel_file = ""
         self.ambient_cols = []  # 所有数据行
         self.process_thread = None
@@ -103,12 +106,12 @@ class TesterApp(QMainWindow):
         file_group = QGroupBox("文件选择")
         file_layout = QFormLayout()
         
-        # CSV 文件选择
+        # CSV 目录选择
         csv_layout = QHBoxLayout()
-        self.csv_label = QLabel("未选择文件")
+        self.csv_label = QLabel("未选择目录")
         self.csv_label.setStyleSheet("color: #666;")
-        btn_csv = QPushButton("选择 CSV 文件")
-        btn_csv.clicked.connect(self.select_csv_files)
+        btn_csv = QPushButton("选择 CSV 目录")
+        btn_csv.clicked.connect(self.select_csv_directory)
         csv_layout.addWidget(self.csv_label, 1)
         csv_layout.addWidget(btn_csv)
         file_layout.addRow("CSV 数据:", csv_layout)
@@ -221,18 +224,17 @@ class TesterApp(QMainWindow):
         # 状态栏
         self.statusBar().showMessage("就绪")
     
-    def select_csv_files(self):
-        """选择 CSV 文件"""
-        files, _ = QFileDialog.getOpenFileNames(
+    def select_csv_directory(self):
+        """选择 CSV 根目录"""
+        directory = QFileDialog.getExistingDirectory(
             self,
-            "选择 CSV 文件",
-            "",
-            "CSV 文件 (*.csv);;所有文件 (*.*)"
+            "选择 CSV 目录",
+            ""
         )
         
-        if files:
-            self.csv_files = files
-            self.csv_label.setText(f"已选择 {len(files)} 个文件")
+        if directory:
+            self.csv_dir = directory
+            self.csv_label.setText(f"已选择: {Path(directory).name}")
             self.csv_label.setStyleSheet("color: #2e7d32;")
             self.check_ready()
     
@@ -333,12 +335,24 @@ class TesterApp(QMainWindow):
     
     def check_ready(self):
         """检查是否准备好处理"""
-        ready = bool(self.csv_files and self.excel_file)
+        # 新版：使用 csv_dir；兼容旧版：使用 csv_files
+        ready = bool((self.csv_dir or self.csv_files) and self.excel_file)
         self.btn_process.setEnabled(ready)
     
     def start_process(self):
         """开始处理数据"""
-        if not self.csv_files or not self.excel_file:
+        # 新版优先使用 csv_dir，兼容旧版使用 csv_files
+        if self.csv_dir:
+            csv_source = self.csv_dir
+            csv_info = f"CSV目录: {Path(self.csv_dir).name}"
+        elif self.csv_files:
+            csv_source = self.csv_files
+            csv_info = f"CSV文件: {len(self.csv_files)}个"
+        else:
+            QMessageBox.warning(self, "错误", "请先选择 CSV 目录或文件")
+            return
+        
+        if not self.excel_file:
             return
         
         # 获取选中的环境温度行（根据checkbox）
@@ -358,7 +372,7 @@ class TesterApp(QMainWindow):
         
         # 清空日志区域并显示开始信息
         self.log_text.clear()
-        self.log_text.append(f"📋 开始处理...\nCSV文件: {len(self.csv_files)}个\nExcel文件: {Path(self.excel_file).name}\n稳定时间间隔: {time_interval}分钟\n温差阈值: {temp_threshold}°C\n环境温度: {len(ambient_rows)}行")
+        self.log_text.append(f"📋 开始处理...\n{csv_info}\nExcel文件: {Path(self.excel_file).name}\n稳定时间间隔: {time_interval}分钟\n温差阈值: {temp_threshold}°C\n环境温度: {len(ambient_rows)}行")
         
         # 显示进度条
         self.progress_bar.setVisible(True)
@@ -368,7 +382,8 @@ class TesterApp(QMainWindow):
         
         # 启动后台线程
         self.process_thread = ProcessThread(
-            csv_files=self.csv_files,
+            csv_dir=self.csv_dir,  # 传递目录
+            csv_files=self.csv_files if self.csv_files else None,  # 兼容旧版
             excel_file=self.excel_file,
             ambient_cols=ambient_rows,
             file_index_col=self.get_file_index_col(),
