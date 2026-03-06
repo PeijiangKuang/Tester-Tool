@@ -161,7 +161,7 @@ class DataProcessor:
             temp_start = self.get_temp_at_time(file_num, channel, stable_start)
             temp_end = self.get_temp_at_time(file_num, channel, stable_end)
             
-            red_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+            red_fill = PatternFill(fill_type='solid', fgColor='FF0000', bgColor='FF0000')
             
             if temp_start is not None:
                 ws.cell(row_idx, 6).value = round(temp_start, 1)  # F列
@@ -178,7 +178,7 @@ class DataProcessor:
         # 计算环境温度平均值
         f_vals = []
         g_vals = []
-        red_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+        red_fill = PatternFill(fill_type='solid', fgColor='FF0000', bgColor='FF0000')
         
         for col_info in ambient_cols:
             row = col_info['row']
