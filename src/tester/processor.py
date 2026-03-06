@@ -163,15 +163,26 @@ class DataProcessor:
             
             red_fill = PatternFill(fill_type='solid', fgColor='FF0000', bgColor='FF0000')
             
+            # 检查并取消 F/G 列的合并单元格
+            merged_ranges_f = [m for m in ws.merged_cells.ranges if 'F' in str(m)]
+            merged_ranges_g = [m for m in ws.merged_cells.ranges if 'G' in str(m)]
+            
             if temp_start is not None:
                 ws.cell(row_idx, 6).value = round(temp_start, 1)  # F列
             else:
+                # 先取消该位置的合并，再设置值和颜色
+                for mr in list(ws.merged_cells.ranges):
+                    if ws.cell(row_idx, 6).coordinate in mr:
+                        ws.unmerge_cells(str(mr))
                 ws.cell(row_idx, 6).value = None
                 ws.cell(row_idx, 6).fill = red_fill  # 红色标记
             
             if temp_end is not None:
                 ws.cell(row_idx, 7).value = round(temp_end, 1)  # G列
             else:
+                for mr in list(ws.merged_cells.ranges):
+                    if ws.cell(row_idx, 7).coordinate in mr:
+                        ws.unmerge_cells(str(mr))
                 ws.cell(row_idx, 7).value = None
                 ws.cell(row_idx, 7).fill = red_fill  # 红色标记
         
@@ -188,11 +199,18 @@ class DataProcessor:
             if f_val is not None:
                 f_vals.append(f_val)
             else:
+                # 先取消合并再设置颜色
+                for mr in list(ws.merged_cells.ranges):
+                    if ws.cell(row, 6).coordinate in mr:
+                        ws.unmerge_cells(str(mr))
                 ws.cell(row, 6).fill = red_fill  # 红色标记
             
             if g_val is not None:
                 g_vals.append(g_val)
             else:
+                for mr in list(ws.merged_cells.ranges):
+                    if ws.cell(row, 7).coordinate in mr:
+                        ws.unmerge_cells(str(mr))
                 ws.cell(row, 7).fill = red_fill  # 红色标记
         
         f_avg = round(sum(f_vals) / len(f_vals), 1) if f_vals else 0
