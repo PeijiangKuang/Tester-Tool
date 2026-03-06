@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 
 
 class DataProcessor:
@@ -160,14 +161,24 @@ class DataProcessor:
             temp_start = self.get_temp_at_time(file_num, channel, stable_start)
             temp_end = self.get_temp_at_time(file_num, channel, stable_end)
             
+            red_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+            
             if temp_start is not None:
                 ws.cell(row_idx, 6).value = round(temp_start, 1)  # F列
+            else:
+                ws.cell(row_idx, 6).value = None
+                ws.cell(row_idx, 6).fill = red_fill  # 红色标记
+            
             if temp_end is not None:
                 ws.cell(row_idx, 7).value = round(temp_end, 1)  # G列
+            else:
+                ws.cell(row_idx, 7).value = None
+                ws.cell(row_idx, 7).fill = red_fill  # 红色标记
         
         # 计算环境温度平均值
         f_vals = []
         g_vals = []
+        red_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
         
         for col_info in ambient_cols:
             row = col_info['row']
@@ -176,8 +187,13 @@ class DataProcessor:
             
             if f_val is not None:
                 f_vals.append(f_val)
+            else:
+                ws.cell(row, 6).fill = red_fill  # 红色标记
+            
             if g_val is not None:
                 g_vals.append(g_val)
+            else:
+                ws.cell(row, 7).fill = red_fill  # 红色标记
         
         f_avg = round(sum(f_vals) / len(f_vals), 1) if f_vals else 0
         g_avg = round(sum(g_vals) / len(g_vals), 1) if g_vals else 0
