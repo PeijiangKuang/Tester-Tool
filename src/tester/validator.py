@@ -43,7 +43,7 @@ class ExcelValidator:
             if ws.max_row < 4:
                 return {
                     'valid': False,
-                    'message': 'Excel 文件行数不足，至少需要4行数据',
+                    'message': '文件校验阶段: Excel 文件行数不足，至少需要4行数据',
                     'ambient_rows': []
                 }
             
@@ -78,31 +78,48 @@ class ExcelValidator:
             if self.errors:
                 return {
                     'valid': False,
-                    'message': '文件不符合规范: F列或G列存在重复值\n' + '\n'.join(self.errors),
+                    'message': '文件校验阶段: F列或G列存在重复值\n' + '\n'.join(self.errors),
                     'ambient_rows': []
                 }
             
             # 查找所有数据行（列出B列所有名字，让用户选择哪些是环境温度）
+            # 同时检查编号是否重复
             ambient_rows = []
+            seen_file_channel = {}  # 用于检测 (file_num, channel) 重复
+            
             for row in range(4, ws.max_row + 1):
                 b_val = ws.cell(row, 2).value  # B列 - 名称
                 d_val = ws.cell(row, file_index_col).value  # 用户选择的文件索引列
                 e_val = ws.cell(row, channel_index_col).value  # 用户选择的通道索引列
                 limit_val = ws.cell(row, 10).value  # J列 - Limit
                 
-                # 列出所有有数据的行
-                if b_val and d_val and e_val:
+                # 只要D列和E列有值就检查（包括B列为空的情况）
+                if d_val is not None and e_val is not None:
                     try:
-                        # 只有当 D 和 E 列都是有效数字时才添加
+                        # 只有当 D 和 E 列都是有效数字时才处理
                         file_num = int(float(str(d_val)))
                         channel = int(float(str(e_val)))
-                        ambient_rows.append({
-                            'row': row,
-                            'b_value': str(b_val).strip(),  # B列名字
-                            'd_value': d_val,
-                            'e_value': e_val,
-                            'limit': limit_val if limit_val is not None else ''  # J列 - Limit
-                        })
+                        
+                        # 检查编号是否重复
+                        key = (file_num, channel)
+                        if key in seen_file_channel:
+                            prev_row = seen_file_channel[key]
+                            return {
+                                'valid': False,
+                                'message': f'文件校验阶段: 子目录索引{file_num}，通道号{channel}编号重复了（行{prev_row}和行{row}）',
+                                'ambient_rows': []
+                            }
+                        seen_file_channel[key] = row
+                        
+                        # 只有B列也有值时才添加到ambient_rows（这是用户需要看到的行）
+                        if b_val:
+                            ambient_rows.append({
+                                'row': row,
+                                'b_value': str(b_val).strip(),  # B列名字
+                                'd_value': d_val,
+                                'e_value': e_val,
+                                'limit': limit_val if limit_val is not None else ''  # J列 - Limit
+                            })
                     except (ValueError, TypeError):
                         pass
             
@@ -115,7 +132,7 @@ class ExcelValidator:
         except Exception as e:
             return {
                 'valid': False,
-                'message': f'验证失败: {str(e)}',
+                'message': f'文件校验阶段: 验证失败 - {str(e)}',
                 'ambient_rows': []
             }
     

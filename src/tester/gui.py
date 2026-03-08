@@ -26,11 +26,13 @@ class ProcessThread(QThread):
     """数据处理后台线程"""
     
     progress = pyqtSignal(int)
-    finished = pyqtSignal(str, str)  # message, output_path
+    log = pyqtSignal(str)  # 实时日志信号
+    finished = pyqtSignal(str, str, list)  # message, output_path, logs
     error = pyqtSignal(str)
     
     def __init__(self, csv_dir=None, csv_files=None, excel_file=None, ambient_cols=None, 
-                 file_index_col=None, channel_index_col=None, time_interval=None, temp_threshold=None):
+                 file_index_col=None, channel_index_col=None, time_interval=None, 
+                 temp_threshold=None, temp_threshold_step=None):
         super().__init__()
         self.csv_dir = csv_dir  # 新增：CSV 根目录
         self.csv_files = csv_files  # 兼容旧版
@@ -40,6 +42,7 @@ class ProcessThread(QThread):
         self.channel_index_col = channel_index_col
         self.time_interval = time_interval
         self.temp_threshold = temp_threshold
+        self.temp_threshold_step = temp_threshold_step
     
     def run(self):
         try:
@@ -47,6 +50,10 @@ class ProcessThread(QThread):
             
             processor = DataProcessor()
             self.progress.emit(30)
+            
+            # 定义日志回调函数，实时发送日志信号
+            def log_callback(msg):
+                self.log.emit(msg)
             
             result = processor.process(
                 csv_dir=self.csv_dir,  # 新增
@@ -56,7 +63,9 @@ class ProcessThread(QThread):
                 file_index_col=self.file_index_col,
                 channel_index_col=self.channel_index_col,
                 time_interval=self.time_interval,
-                temp_threshold=self.temp_threshold
+                temp_threshold=self.temp_threshold,
+                temp_threshold_step=self.temp_threshold_step,
+                log_callback=log_callback  # 传递日志回调
             )
             
             self.progress.emit(90)
@@ -64,13 +73,14 @@ class ProcessThread(QThread):
             output_path = result.get('output_path', '')
             message = result.get('message', '处理完成')
             warnings = result.get('warnings', [])
+            logs = result.get('logs', [])  # 获取日志列表
             
             # 如果有警告，添加到消息中
             if warnings:
                 message += "\n\n⚠️ 警告:\n" + "\n".join(warnings)
             
             self.progress.emit(100)
-            self.finished.emit(message, output_path)
+            self.finished.emit(message, output_path, logs)
             
         except Exception as e:
             self.error.emit(str(e))
@@ -133,11 +143,11 @@ class TesterApp(QMainWindow):
         param_group = QGroupBox("参数设置")
         param_layout = QFormLayout()
         
-        # 索引列选择
+        # 第一行：子目录索引列 + 通道索引列
         index_layout = QHBoxLayout()
         
-        # 文件索引列选择
-        file_index_label = QLabel("文件索引列:")
+        # 子目录索引列选择
+        file_index_label = QLabel("子目录索引列:")
         self.file_index_combo = QComboBox()
         self.file_index_combo.addItems(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"])
         self.file_index_combo.setCurrentText("D")
@@ -146,7 +156,7 @@ class TesterApp(QMainWindow):
         index_layout.addWidget(self.file_index_combo)
         
         # 通道索引列选择
-        channel_index_label = QLabel("  通道索引列:")
+        channel_index_label = QLabel("通道索引列:")
         self.channel_index_combo = QComboBox()
         self.channel_index_combo.addItems(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"])
         self.channel_index_combo.setCurrentText("E")
@@ -154,25 +164,42 @@ class TesterApp(QMainWindow):
         index_layout.addWidget(channel_index_label)
         index_layout.addWidget(self.channel_index_combo)
         
+        index_layout.addStretch()
         param_layout.addRow("", index_layout)
         
-        # 时间间隔 - 可输入，单位分钟（单位在右边）
+        # 第二行：稳定时间间隔(分钟)
         time_layout = QHBoxLayout()
         self.time_spin = QSpinBox()
         self.time_spin.setRange(1, 480)  # 1分钟到8小时
         self.time_spin.setValue(60)
-        # 去掉后缀，用右侧标签显示单位
         time_layout.addWidget(self.time_spin)
         time_layout.addWidget(QLabel("分钟"))
         time_layout.addStretch()
         param_layout.addRow("稳定时间间隔:", time_layout)
         
-        # 温差阈值 - 不带单位
+        # 第三行：温差阈值 + 温差阈值步长
+        threshold_layout = QHBoxLayout()
+        
+        # 温差阈值
         self.threshold_spin = QDoubleSpinBox()
         self.threshold_spin.setRange(0.1, 20.0)
         self.threshold_spin.setSingleStep(0.1)
         self.threshold_spin.setValue(2.0)
-        param_layout.addRow("温差阈值:", self.threshold_spin)
+        threshold_layout.addWidget(self.threshold_spin)
+        threshold_layout.addWidget(QLabel("K"))
+        
+        threshold_layout.addSpacing(30)  # 增加间距
+        
+        # 温差阈值步长
+        self.threshold_step_spin = QDoubleSpinBox()
+        self.threshold_step_spin.setRange(0.1, 5.0)
+        self.threshold_step_spin.setSingleStep(0.1)
+        self.threshold_step_spin.setValue(0.5)
+        threshold_layout.addWidget(self.threshold_step_spin)
+        threshold_layout.addWidget(QLabel("K"))
+        
+        threshold_layout.addStretch()
+        param_layout.addRow("温差阈值 / 步长:", threshold_layout)
         
         param_group.setLayout(param_layout)
         main_layout.addWidget(param_group)
@@ -182,7 +209,7 @@ class TesterApp(QMainWindow):
         ambient_layout = QVBoxLayout()
         self.ambient_table = QTableWidget()
         self.ambient_table.setColumnCount(5)
-        self.ambient_table.setHorizontalHeaderLabels(["选择", "B列(名称)", "文件索引", "通道索引", "Limit"])
+        self.ambient_table.setHorizontalHeaderLabels(["选择", "B列(名称)", "子目录索引", "通道索引", "Limit"])
         self.ambient_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         ambient_layout.addWidget(self.ambient_table)
         self.ambient_group.setLayout(ambient_layout)
@@ -369,10 +396,11 @@ class TesterApp(QMainWindow):
         
         time_interval = self.get_time_interval_minutes()
         temp_threshold = self.threshold_spin.value()
+        temp_threshold_step = self.threshold_step_spin.value()
         
         # 清空日志区域并显示开始信息
         self.log_text.clear()
-        self.log_text.append(f"📋 开始处理...\n{csv_info}\nExcel文件: {Path(self.excel_file).name}\n稳定时间间隔: {time_interval}分钟\n温差阈值: {temp_threshold}°C\n环境温度: {len(ambient_rows)}行")
+        self.log_text.append(f"📋 开始处理...\n{csv_info}\nExcel文件: {Path(self.excel_file).name}\n稳定时间间隔: {time_interval}分钟\n初始温差阈值: {temp_threshold}K\n温差阈值步长: {temp_threshold_step}K\n环境温度: {len(ambient_rows)}行")
         
         # 显示进度条
         self.progress_bar.setVisible(True)
@@ -389,20 +417,30 @@ class TesterApp(QMainWindow):
             file_index_col=self.get_file_index_col(),
             channel_index_col=self.get_channel_index_col(),
             time_interval=time_interval,
-            temp_threshold=temp_threshold
+            temp_threshold=temp_threshold,
+            temp_threshold_step=temp_threshold_step
         )
         
         self.process_thread.progress.connect(self.progress_bar.setValue)
+        self.process_thread.log.connect(self.append_log)  # 连接实时日志信号
         self.process_thread.finished.connect(self.process_finished)
         self.process_thread.error.connect(self.process_error)
         
         self.process_thread.start()
     
-    def process_finished(self, message: str, output_path: str):
+    def append_log(self, message: str):
+        """追加实时日志"""
+        self.log_text.append(message)
+    
+    def process_finished(self, message: str, output_path: str, logs: list):
         """处理完成"""
         self.progress_bar.setVisible(False)
         self.btn_process.setEnabled(True)
         self.statusBar().showMessage("处理完成")
+        
+        # 在日志区域显示过程日志
+        for log in logs:
+            self.log_text.append(log)
         
         # 在日志区域显示结果
         self.log_text.append(f"✅ 完成: {message}")
